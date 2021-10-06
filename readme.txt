@@ -1,0 +1,6 @@
+Previous Battery Health: Flags:36175875 State:5 MaxCapacity:(null) CycleCount:(null)
+Oct  5 21:09:22 iPad-7th-generation powerd[42] <Notice>: Updated Battery Health: Flags:36175875 State:5 MaxCapacity:(null) CycleCount:(null)
+Oct  5 21:09:22 iPad-7th-generation powerd[42] <Notice>: Previous Battery Health: Flags:36175875 State:5 MaxCapacity:(null) CycleCount:(null)
+Oct  5 21:09:22 iPad-7th-generation powerd[42] <Notice>: Updated Battery Health: Flags:36175875 State:5 MaxCapacity:(null) CycleCount:(null)
+Oct  5 21:09:22 iPad-7th-generation powerd[42] <Notice>: Previous Battery Health: Flags:36175875 State:5 MaxCapacity:(null) CycleCount:(null)
+Oct  5 21:09:22 iPad-7th-generation powerd[42] <Notice>: Updated Battery Health: Flags:36175875 State:5 MaxCapacity:(null) CycleCount:(null)
