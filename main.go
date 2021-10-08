@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"regexp"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -77,7 +78,7 @@ func ExtraTar(filename string) bool {
 	return true
 }
 
-func findMaxCapacity(filename string) (string, error) {
+func findMaxCapacity(filename string) (string, string, error) {
 	//log show --archive aaa.logarchive --start "2021-10-04" --process powerd  ｜ grep MaxCapacity
 	tarfile := "/Users/qa/go/" + filename + ".logarchive"
 	startdate := time.Now().AddDate(0, 0, -7).Format("2006-01-02")
@@ -94,6 +95,7 @@ func findMaxCapacity(filename string) (string, error) {
 	done := make(chan bool)
 
 	maxcap := "0"
+	var linecap string
 	// Create a scanner which scans r in a line-by-line fashion
 	scanner := bufio.NewScanner(r)
 
@@ -108,6 +110,7 @@ func findMaxCapacity(filename string) (string, error) {
 			vs := reg.FindStringSubmatch(line)
 			if len(vs) == 2 {
 				maxcap = vs[1]
+				linecap = line
 			}
 
 			//fmt.Println(line)
@@ -129,7 +132,7 @@ func findMaxCapacity(filename string) (string, error) {
 		if exitError, ok := err.(*exec.ExitError); ok {
 			waitStatus := exitError.Sys().(syscall.WaitStatus)
 			log.Printf("ExitCode=%d\n", waitStatus.ExitStatus())
-			return maxcap, err
+			return maxcap, linecap, err
 		}
 	} else {
 		// Success
@@ -137,7 +140,7 @@ func findMaxCapacity(filename string) (string, error) {
 		log.Printf("ExitCode=%d\n", waitStatus.ExitStatus())
 	}
 
-	return maxcap, nil
+	return maxcap, linecap, nil
 }
 
 func CleanSpace(filename string) {
@@ -164,18 +167,36 @@ func setupRouter() *gin.Engine {
 	r.GET("/version", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"code":    http.StatusOK,
-			"version": "1.0.0.0", // cast it to string before showing
+			"version": "1.0.0.1", // cast it to string before showing
 			"author":  "Jeffery Zhang",
 			"company": "FutureDial",
 		})
 	})
 
+	r.GET("/v2/:id", func(c *gin.Context) {
+		tarname := c.Params.ByName("id")
+		mc, line, err := findMaxCapacity(tarname)
+		CleanSpace(tarname)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"code":        http.StatusInternalServerError,
+				"MaxCapacity": "0", // cast it to string before showing
+				"error":       err,
+			})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"code":        http.StatusOK,
+			"MaxCapacity": mc, // cast it to string before showing
+			"line":        line,
+		})
+	})
 	// Get user value
 	r.GET("/v1/:id", func(c *gin.Context) {
 		tarname := c.Params.ByName("id")
 		fmt.Println(tarname)
 		if ExtraTar(tarname) {
-			mc, err := findMaxCapacity(tarname)
+			mc, line, err := findMaxCapacity(tarname)
 			CleanSpace(tarname)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{
@@ -183,10 +204,12 @@ func setupRouter() *gin.Engine {
 					"MaxCapacity": "0", // cast it to string before showing
 					"error":       err,
 				})
+				return
 			}
 			c.JSON(http.StatusOK, gin.H{
 				"code":        http.StatusOK,
 				"MaxCapacity": mc, // cast it to string before showing
+				"line":        line,
 			})
 		} else {
 			c.JSON(http.StatusLocked, gin.H{
@@ -202,7 +225,7 @@ func setupRouter() *gin.Engine {
 
 func main() {
 	//start bonjour :dns-sd -R "traceLogs" _http._tcp . 8080 path=/version
-
+	runtime.GOMAXPROCS(runtime.NumCPU())
 	router := setupRouter()
 	// Listen and Server in 0.0.0.0:8080
 	srv := &http.Server{
