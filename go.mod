@@ -5,7 +5,6 @@ go 1.17
 require (
 	github.com/gin-gonic/gin v1.7.4
 	github.com/grandcat/zeroconf v1.0.0
-	github.com/oleksandr/bonjour v0.0.0-20210301155756-30f43c61b915
 )
 
 require (
