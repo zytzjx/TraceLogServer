@@ -9,23 +9,31 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/grandcat/zeroconf"
 )
 
-func ExtraTar(filename string) bool {
+const (
+	defaultpath string = "/Users/qa/go/"
+	VERSION     string = "1.0.0.2"
+	SERVERPORT  int    = 8080
+)
+
+func ExtraTar(path, filename string) bool {
 	log.Println("ExtraTar++ " + filename)
-	tarfile := "/Users/qa/go/" + filename + ".tar"
+	tarfile := filepath.Join("/", path, filename+".tar")
 	if _, err := os.Stat(tarfile); os.IsNotExist(err) {
 		// path does not exist
 		return false
 	}
 	//create folder
-	logfolder := "/Users/qa/go/" + filename + ".logarchive"
+	logfolder := filepath.Join("/", path, filename+".logarchive")
 	if os.Mkdir(logfolder, 0755) != nil {
 		return false
 	}
@@ -78,9 +86,24 @@ func ExtraTar(filename string) bool {
 	return true
 }
 
-func findMaxCapacity(filename string) (string, string, error) {
+func CopyFileFromNetDiver(path, filename string) (string, error) {
+	// cp -R /Volumes/go/1.logarchive /Users/qa/go
+	log.Printf("CopyFileFromNetDiver++ %s\n", filename)
+	logpath := filepath.Join("/", path, filename+".logarchive")
+	log.Println(logpath)
+	cmd := exec.Command("cp", "-R", logpath, defaultpath)
+	err := cmd.Run()
+	if err != nil {
+		return "", err
+	}
+	log.Printf("CopyFileFromNetDiver-- %s\n", filename)
+	return defaultpath, nil
+}
+
+func findMaxCapacity(path, filename string) (string, string, error) {
 	//log show --archive aaa.logarchive --start "2021-10-04" --process powerd  ｜ grep MaxCapacity
-	tarfile := "/Users/qa/go/" + filename + ".logarchive"
+	//"/Users/qa/go/"
+	tarfile := filepath.Join("/", path, filename+".logarchive")
 	startdate := time.Now().AddDate(0, 0, -7).Format("2006-01-02")
 	//scmd := fmt.Sprintf("log show --archive %s --start %s --process powerd ", tarfile, startdate)
 	//cmd := exec.Command("bash", "-c", scmd)
@@ -112,8 +135,6 @@ func findMaxCapacity(filename string) (string, string, error) {
 				maxcap = vs[1]
 				linecap = line
 			}
-
-			//fmt.Println(line)
 		}
 		// We're all done, unblock the channel
 		done <- true
@@ -122,7 +143,6 @@ func findMaxCapacity(filename string) (string, string, error) {
 
 	// Start the command and check for errors
 	cmd.Start()
-
 	// Wait for all output to be processed
 	<-done
 
@@ -143,16 +163,16 @@ func findMaxCapacity(filename string) (string, string, error) {
 	return maxcap, linecap, nil
 }
 
-func CleanSpace(filename string) {
+func CleanSpace(path, filename string) {
 	//delete tar
 	//delete tar extra folder
-	tarfile := "/Users/qa/go/" + filename + ".tar"
+	tarfile := filepath.Join("/", path, filename+".tar")
 	if _, err := os.Stat(tarfile); !os.IsNotExist(err) {
 		// path does  exist
 		os.Remove(tarfile)
 	}
 	//create folder
-	logfolder := "/Users/qa/go/" + filename + ".logarchive"
+	logfolder := filepath.Join("/", path, filename+".logarchive")
 	if _, err := os.Stat(logfolder); !os.IsNotExist(err) {
 		// path does  exist
 		os.RemoveAll(logfolder)
@@ -165,18 +185,32 @@ func setupRouter() *gin.Engine {
 	r := gin.Default()
 
 	r.GET("/version", func(c *gin.Context) {
+		path := c.DefaultQuery("path", defaultpath)
+		fmt.Println(path)
 		c.JSON(http.StatusOK, gin.H{
 			"code":    http.StatusOK,
-			"version": "1.0.0.1", // cast it to string before showing
+			"version": VERSION, // cast it to string before showing
 			"author":  "Jeffery Zhang",
 			"company": "FutureDial",
+			"ip":      c.ClientIP(),
 		})
 	})
 
-	r.GET("/v2/:id", func(c *gin.Context) {
+	r.GET("v3/:id", func(c *gin.Context) {
 		tarname := c.Params.ByName("id")
-		mc, line, err := findMaxCapacity(tarname)
-		CleanSpace(tarname)
+		path := c.DefaultQuery("path", defaultpath)
+		log.Println(path)
+		curpath, err := CopyFileFromNetDiver(path, tarname)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"code":        http.StatusInternalServerError,
+				"MaxCapacity": "0", // cast it to string before showing
+				"error":       err,
+				"info":        "Copy files failed",
+			})
+			return
+		}
+		mc, line, err := findMaxCapacity(curpath, tarname)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"code":        http.StatusInternalServerError,
@@ -185,6 +219,29 @@ func setupRouter() *gin.Engine {
 			})
 			return
 		}
+		log.Printf("[%s]MaxCapacity=%s", tarname, mc)
+		c.JSON(http.StatusOK, gin.H{
+			"code":        http.StatusOK,
+			"MaxCapacity": mc, // cast it to string before showing
+			"line":        line,
+		})
+
+	})
+	r.GET("/v2/:id", func(c *gin.Context) {
+		tarname := c.Params.ByName("id")
+		path := c.DefaultQuery("path", defaultpath)
+		log.Println(path)
+		mc, line, err := findMaxCapacity(path, tarname)
+		//CleanSpace(path, tarname)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"code":        http.StatusInternalServerError,
+				"MaxCapacity": "0", // cast it to string before showing
+				"error":       err,
+			})
+			return
+		}
+		log.Printf("[%s]MaxCapacity=%s", tarname, mc)
 		c.JSON(http.StatusOK, gin.H{
 			"code":        http.StatusOK,
 			"MaxCapacity": mc, // cast it to string before showing
@@ -195,9 +252,9 @@ func setupRouter() *gin.Engine {
 	r.GET("/v1/:id", func(c *gin.Context) {
 		tarname := c.Params.ByName("id")
 		fmt.Println(tarname)
-		if ExtraTar(tarname) {
-			mc, line, err := findMaxCapacity(tarname)
-			CleanSpace(tarname)
+		if ExtraTar(defaultpath, tarname) {
+			mc, line, err := findMaxCapacity(defaultpath, tarname)
+			CleanSpace(defaultpath, tarname)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{
 					"code":        http.StatusInternalServerError,
@@ -206,6 +263,7 @@ func setupRouter() *gin.Engine {
 				})
 				return
 			}
+			log.Printf("[%s]MaxCapacity=%s", tarname, mc)
 			c.JSON(http.StatusOK, gin.H{
 				"code":        http.StatusOK,
 				"MaxCapacity": mc, // cast it to string before showing
@@ -226,10 +284,17 @@ func setupRouter() *gin.Engine {
 func main() {
 	//start bonjour :dns-sd -R "traceLogs" _http._tcp . 8080 path=/version
 	runtime.GOMAXPROCS(runtime.NumCPU())
+
+	server, err := zeroconf.Register("TRACELOG", "_tracelog._tcp", "local.", SERVERPORT, []string{"version=" + VERSION, "author=jeffery"}, nil)
+	if err != nil {
+		panic(err)
+	}
+	defer server.Shutdown()
+
 	router := setupRouter()
 	// Listen and Server in 0.0.0.0:8080
 	srv := &http.Server{
-		Addr:    ":8080",
+		Addr:    fmt.Sprintf(":%d", SERVERPORT),
 		Handler: router,
 	}
 

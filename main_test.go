@@ -17,5 +17,5 @@ func Test_runPipe(t *testing.T) {
 }
 
 func Test_findMaxCapacity(t *testing.T) {
-	findMaxCapacity("aassdd")
+	findMaxCapacity("/Users/qa/go/", "aassdd")
 }
